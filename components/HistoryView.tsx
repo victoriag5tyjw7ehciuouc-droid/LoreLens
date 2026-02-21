@@ -1,0 +1,337 @@
+
+import React, { useState, useEffect } from 'react';
+import { AppTheme, HistoryItem, AppLanguage, TRANSLATIONS, DailyRecapResult } from '../types';
+import { IconChevronDown, IconJournal } from './Icons';
+import { generateDailyRecap } from '../services/geminiService';
+
+interface HistoryViewProps {
+  history: HistoryItem[];
+  onSelect: (item: HistoryItem) => void;
+  onClose: () => void;
+  theme: AppTheme;
+  language: AppLanguage;
+  onShowNotification?: (msg: string) => void;
+}
+
+// --- Visual Components ---
+
+// 1. Resonance Fractal: A dynamic, math-y geometric shape
+const ResonanceFractal = ({ score, isDark }: { score: number, isDark: boolean }) => {
+    // Generate polygon points based on score
+    const sides = 7;
+    const radius = 60;
+    const center = 80; // viewBox 160x160
+    
+    const getPolygonPoints = (r: number, offsetAngle: number = 0) => {
+        let points = "";
+        for (let i = 0; i < sides; i++) {
+            const angle = (i * 2 * Math.PI / sides) - (Math.PI / 2) + offsetAngle;
+            const x = center + r * Math.cos(angle);
+            const y = center + r * Math.sin(angle);
+            points += `${x},${y} `;
+        }
+        return points;
+    };
+
+    // Calculate intensity based on score
+    const scale = 0.5 + (score / 200); // 0.5 to 1.0
+    const dash = score > 90 ? "none" : "2,2";
+
+    const mainColor = isDark ? "#818cf8" : "#4f46e5"; // Indigo
+    const secColor = isDark ? "#c084fc" : "#9333ea"; // Purple
+
+    return (
+        <div className="relative w-40 h-40 flex items-center justify-center">
+            {/* Spinning background Aura */}
+            <div className={`absolute inset-0 rounded-full blur-2xl opacity-20 ${isDark ? 'bg-indigo-500' : 'bg-indigo-300'}`} style={{ transform: `scale(${scale})` }}></div>
+            
+            <svg width="160" height="160" viewBox="0 0 160 160" className="animate-[spin_20s_linear_infinite]">
+                 {/* Outer Geometric Ring */}
+                <circle cx="80" cy="80" r="78" fill="none" stroke={isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)"} strokeWidth="1" />
+                
+                {/* Layer 1: Base Shape */}
+                <polygon 
+                    points={getPolygonPoints(radius)} 
+                    fill="none" 
+                    stroke={mainColor} 
+                    strokeWidth="1.5"
+                    opacity="0.3" 
+                />
+                
+                {/* Layer 2: Score Shape (Rotated) */}
+                <polygon 
+                    points={getPolygonPoints(radius * scale, 0.4)} 
+                    fill={isDark ? "rgba(129, 140, 248, 0.1)" : "rgba(79, 70, 229, 0.05)"} 
+                    stroke={secColor} 
+                    strokeWidth="2"
+                    strokeDasharray={dash}
+                    className="transition-all duration-1000 ease-out"
+                />
+
+                {/* Connecting lines to center (Fractal feel) */}
+                {Array.from({ length: sides }).map((_, i) => {
+                    const angle = (i * 2 * Math.PI / sides) - (Math.PI / 2) + 0.4;
+                    const x = center + (radius * scale) * Math.cos(angle);
+                    const y = center + (radius * scale) * Math.sin(angle);
+                    return <line key={i} x1={center} y1={center} x2={x} y2={y} stroke={mainColor} strokeWidth="0.5" opacity="0.2" />
+                })}
+            </svg>
+            
+            {/* Score Text */}
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className={`text-3xl font-bold font-mono ${isDark ? 'text-white' : 'text-gray-900'}`}>{score}</span>
+                <span className="text-[10px] tracking-widest uppercase opacity-50">RES</span>
+            </div>
+        </div>
+    );
+};
+
+// 2. Axis Map: A vertical timeline connected by glowing lines
+const AxisMap = ({ items, onSelect, isDark }: { items: HistoryItem[], onSelect: (i: HistoryItem) => void, isDark: boolean }) => {
+    return (
+        <div className="relative py-8 pl-8 pr-4">
+            {/* The Axis Line */}
+            <div className={`absolute left-10 top-0 bottom-0 w-0.5 ${isDark ? 'bg-gradient-to-b from-transparent via-indigo-500/50 to-transparent' : 'bg-gradient-to-b from-transparent via-indigo-300 to-transparent'}`}></div>
+
+            <div className="space-y-8">
+                {items.map((item, index) => {
+                    return (
+                        <div key={item.id} className="relative flex items-center group">
+                            {/* The Node on the Axis */}
+                            <div className="absolute left-[8px] z-10 w-3 h-3 rounded-full bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.8)] border-2 border-white ring-4 ring-black"></div>
+                            
+                            {/* Connection Line */}
+                            <div className={`absolute left-[20px] w-8 h-[1px] ${isDark ? 'bg-white/20' : 'bg-black/10'}`}></div>
+
+                            {/* The Card */}
+                            <div 
+                                onClick={() => onSelect(item)}
+                                className={`ml-12 flex-1 p-3 rounded-xl border flex gap-3 items-center cursor-pointer transition-all active:scale-95 hover:scale-[1.02] ${isDark ? 'bg-white/5 border-white/10 hover:bg-white/10' : 'bg-white border-gray-100 hover:shadow-md'}`}
+                            >
+                                <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 border border-white/10">
+                                    {item.thumbnail ? (
+                                        <img src={item.thumbnail} alt="thumb" className="w-full h-full object-cover" />
+                                    ) : (
+                                        <div className="w-full h-full bg-gray-700"></div>
+                                    )}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                    {/* Simplified: Only Title, no Essence */}
+                                    <h4 className={`text-sm font-medium leading-tight ${isDark ? 'text-white' : 'text-gray-900'}`}>{item.title}</h4>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+};
+
+export const HistoryView: React.FC<HistoryViewProps> = ({ history, onSelect, onClose, theme, language, onShowNotification }) => {
+  const isDark = theme === 'dark';
+  const t = TRANSLATIONS[language].history;
+
+  // Recap State
+  const [showRecap, setShowRecap] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [recapData, setRecapData] = useState<DailyRecapResult | null>(null);
+  const [todayItems, setTodayItems] = useState<HistoryItem[]>([]);
+
+  const handleRecapClick = async () => {
+    // Filter for items from "today"
+    const today = new Date().setHours(0, 0, 0, 0);
+    const items = history.filter(item => {
+        const itemDate = new Date(item.timestamp).setHours(0, 0, 0, 0);
+        return itemDate === today;
+    });
+
+    if (items.length === 0) {
+        onShowNotification?.(t.noItemsToday);
+        return;
+    }
+
+    setTodayItems(items);
+    setShowRecap(true);
+    setIsGenerating(true);
+    setRecapData(null);
+
+    try {
+        const result = await generateDailyRecap(items, language);
+        setRecapData(result);
+    } catch (error) {
+        onShowNotification?.("Failed to create journal.");
+        setShowRecap(false);
+    } finally {
+        setIsGenerating(false);
+    }
+  };
+
+  // Styles
+  const bgClass = isDark ? 'bg-black text-white' : 'bg-gray-50 text-gray-900';
+  const headerBgClass = isDark ? 'bg-black/60 border-white/10' : 'bg-white/80 border-gray-200';
+  const itemBgClass = isDark ? 'bg-neutral-900 border-white/5 active:bg-neutral-800' : 'bg-white border-gray-200 shadow-sm active:bg-gray-50';
+  const subTextClass = isDark ? 'text-gray-500' : 'text-gray-400';
+  const accentTextClass = isDark ? 'text-indigo-400' : 'text-indigo-600';
+  const iconBtnClass = isDark ? 'bg-white/10 hover:bg-white/20' : 'bg-gray-100 hover:bg-gray-200 text-gray-600';
+
+  return (
+    <div className={`absolute inset-0 z-30 flex flex-col ${bgClass}`}>
+        
+        {/* Header */}
+        <div className={`pt-12 px-6 pb-6 flex items-center justify-between border-b backdrop-blur-md sticky top-0 z-10 ${headerBgClass}`}>
+            <h1 className="text-3xl font-thin tracking-wider animate-fade-in-up">{t.title}</h1>
+            <div className="flex gap-3">
+                <button 
+                    onClick={handleRecapClick}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-full transition-transform active:scale-95 border ${isDark ? 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30' : 'bg-indigo-50 text-indigo-700 border-indigo-200'}`}
+                >
+                    <IconJournal className="w-4 h-4" />
+                    <span className="text-sm font-medium">{t.recapButton}</span>
+                </button>
+                <button 
+                    onClick={onClose} 
+                    className={`p-2 rounded-full active:scale-90 transition-transform duration-200 ${iconBtnClass}`}
+                >
+                    <IconChevronDown className="w-6 h-6" />
+                </button>
+            </div>
+        </div>
+
+        {/* List Content */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            {history.length === 0 ? (
+                <div className={`flex flex-col items-center justify-center h-64 ${subTextClass} animate-fade-in-up delay-200`}>
+                    <p>{t.empty}</p>
+                    <p className="text-sm mt-2 opacity-60">{t.emptySub}</p>
+                </div>
+            ) : (
+                history.map((item, index) => (
+                    <div 
+                        key={item.id}
+                        onClick={() => onSelect(item)}
+                        className={`flex gap-4 p-4 rounded-2xl border transition-all cursor-pointer animate-fade-in-up ${itemBgClass}`}
+                        style={{ animationDelay: `${index * 100}ms` }}
+                    >
+                        {/* Thumbnail */}
+                        <div className={`w-20 h-20 rounded-xl shrink-0 overflow-hidden relative shadow-inner ${isDark ? 'bg-gray-800' : 'bg-gray-200'}`}>
+                             {item.thumbnail ? (
+                                 <img src={item.thumbnail} alt={item.title} className="w-full h-full object-cover transition-transform duration-500 hover:scale-110" />
+                             ) : (
+                                <div className="absolute inset-0 flex items-center justify-center text-gray-500 font-serif text-2xl opacity-30">
+                                    {item.title.charAt(0)}
+                                </div>
+                             )}
+                        </div>
+                        
+                        <div className="flex-1 min-w-0 flex flex-col justify-center py-1">
+                            <h3 className={`text-lg font-normal truncate mb-1 ${isDark ? 'text-white' : 'text-gray-900'}`}>{item.title}</h3>
+                            <p className={`text-sm mb-2 font-medium line-clamp-1 opacity-90 ${accentTextClass}`}>
+                                {item.mirrorInsight}
+                            </p>
+                             <p className={`text-xs font-mono uppercase tracking-wider opacity-60 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                                {new Date(item.timestamp).toLocaleDateString(language, { month: 'short', day: 'numeric' })} • Beijing
+                            </p>
+                        </div>
+                    </div>
+                ))
+            )}
+            <div className="h-24"></div>
+        </div>
+
+        {/* Daily Recap Modal / Overlay */}
+        {showRecap && (
+            // CRITICAL FIX: Use simple fixed overlay with overflow-y-auto. 
+            // Avoid complex flex-centering on the scroll container itself.
+            <div className="fixed inset-0 z-50 overflow-y-auto bg-black/95 backdrop-blur-xl animate-fade-in">
+                 
+                 {/* Close Button - Fixed relative to viewport so it is always accessible */}
+                 <button 
+                    onClick={() => setShowRecap(false)}
+                    className="fixed top-6 right-6 p-3 rounded-full bg-white/10 text-white hover:bg-white/20 active:scale-90 z-[60] border border-white/5 backdrop-blur-md"
+                 >
+                    <IconChevronDown className="w-6 h-6" />
+                 </button>
+
+                 {/* Layout Wrapper: Ensures min-height is full screen, allowing centering for short content, but expansion for tall content */}
+                 <div className="min-h-full w-full flex flex-col items-center justify-center p-4 py-20">
+                     
+                     {/* Loading State */}
+                     {isGenerating && (
+                         <div className="flex flex-col items-center justify-center gap-8">
+                             <div className="relative w-24 h-24">
+                                 <div className="absolute inset-0 border-t-2 border-indigo-500 rounded-full animate-spin"></div>
+                                 <div className="absolute inset-2 border-r-2 border-purple-500 rounded-full animate-spin reverse"></div>
+                                 <div className="absolute inset-4 border-b-2 border-pink-500 rounded-full animate-spin"></div>
+                             </div>
+                             <p className={`text-sm tracking-[0.2em] animate-pulse font-mono uppercase ${isDark ? 'text-gray-400' : 'text-gray-200'}`}>{t.writing}</p>
+                         </div>
+                     )}
+
+                     {/* Recap Card - Width constrained, height natural */}
+                     {!isGenerating && recapData && (
+                         <div className={`w-full max-w-lg relative animate-fade-in-up flex flex-col sm:rounded-[2rem] rounded-3xl shadow-2xl overflow-hidden ${isDark ? 'bg-[#0a0a0a] text-white' : 'bg-[#fffbf0] text-gray-900'}`}>
+                             
+                             {/* Abstract Header Background */}
+                             <div className="absolute top-0 inset-x-0 h-64 overflow-hidden pointer-events-none">
+                                 <div className={`absolute -top-20 -left-20 w-64 h-64 rounded-full blur-[80px] opacity-40 ${isDark ? 'bg-indigo-600' : 'bg-indigo-300'}`}></div>
+                                 <div className={`absolute top-0 right-0 w-40 h-40 rounded-full blur-[60px] opacity-30 ${isDark ? 'bg-purple-600' : 'bg-purple-300'}`}></div>
+                             </div>
+
+                             {/* --- SECTION 1: Resonance (Philosophy) --- */}
+                             <div className="relative z-10 p-8 pb-4 flex flex-col items-center text-center mt-8 sm:mt-0">
+                                 <div className="mt-8 mb-6">
+                                     <ResonanceFractal score={recapData.score} isDark={isDark} />
+                                 </div>
+                                 
+                                 <h2 className="text-2xl font-serif italic mb-2 tracking-wide text-transparent bg-clip-text bg-gradient-to-r from-indigo-300 via-white to-indigo-300">
+                                     "{recapData.archetype}"
+                                 </h2>
+                                 
+                                 <div className="w-12 h-0.5 bg-gradient-to-r from-transparent via-indigo-500 to-transparent mb-6"></div>
+
+                                 <p className={`text-lg font-light leading-relaxed max-w-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                     {recapData.philosophicalTake}
+                                 </p>
+                                 
+                                 {/* Tags */}
+                                 <div className="flex gap-2 mt-6 justify-center flex-wrap">
+                                     {recapData.tags.map(tag => (
+                                         <span key={tag} className={`text-[10px] uppercase tracking-widest px-3 py-1 rounded-full border ${isDark ? 'border-white/10 bg-white/5 text-gray-400' : 'border-black/10 bg-black/5 text-gray-600'}`}>
+                                             #{tag}
+                                         </span>
+                                     ))}
+                                 </div>
+                             </div>
+
+                             {/* --- SECTION 2: Axis Map (Spatial/Time) --- */}
+                             <div className={`relative mt-8 rounded-t-[2.5rem] border-t ${isDark ? 'bg-[#121212] border-white/10' : 'bg-white border-gray-200 shadow-[0_-10px_30px_rgba(0,0,0,0.05)]'}`}>
+                                 <div className="p-8 pb-32">
+                                     <div className="flex items-center gap-3 mb-6">
+                                         <div className="w-2 h-8 bg-indigo-500 rounded-full"></div>
+                                         <h3 className={`text-xl font-thin tracking-widest uppercase ${isDark ? 'text-white' : 'text-gray-900'}`}>{t.dailyJournal}</h3>
+                                     </div>
+                                     
+                                     {/* Journal Text */}
+                                     <p className={`font-serif text-base italic leading-loose mb-8 pl-4 border-l ${isDark ? 'text-gray-400 border-white/10' : 'text-gray-600 border-black/10'}`}>
+                                         "{recapData.journal}"
+                                     </p>
+
+                                     {/* Axis Map Component */}
+                                     <AxisMap items={todayItems} onSelect={(item) => {/* Maybe preview image larger? */}} isDark={isDark} />
+
+                                     {/* Footer / Share Hint */}
+                                     <div className="mt-12 flex justify-center opacity-40">
+                                         <p className="text-[10px] uppercase tracking-[0.3em]">LoreLens • Axis Recap</p>
+                                     </div>
+                                 </div>
+                             </div>
+
+                         </div>
+                     )}
+                 </div>
+            </div>
+        )}
+    </div>
+  );
+};
