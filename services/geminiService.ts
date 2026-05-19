@@ -1,9 +1,5 @@
 
-import { GoogleGenAI, Modality, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { DecipherResult, AppLanguage, HistoryItem, DailyRecapResult } from "../types";
-
-// Initialize Gemini Client
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 const LANGUAGE_NAMES: Record<AppLanguage, string> = {
   en: "English",
@@ -57,79 +53,17 @@ export const decipherImage = async (
   location?: { lat: number; lng: number },
   language: AppLanguage = 'en'
 ): Promise<DecipherResult> => {
-  // Remove data URL prefix if present
-  const cleanBase64 = base64Image.replace(/^data:image\/(png|jpg|jpeg|webp);base64,/, "");
   const targetLanguage = LANGUAGE_NAMES[language];
 
-  // Helper to construct and execute the request
-  const attemptDecipher = async (useMaps: boolean) => {
-      const tools = useMaps ? [{ googleMaps: {} }] : undefined;
-      const toolConfig = (useMaps && location) ? {
-          retrievalConfig: {
-              latLng: {
-                  latitude: location.lat,
-                  longitude: location.lng
-              }
-          }
-      } : undefined;
-
-      return await ai.models.generateContent({
-        model: "gemini-2.5-flash", 
-        contents: {
-          parts: [
-            {
-              inlineData: {
-                mimeType: "image/jpeg",
-                data: cleanBase64,
-              },
-            },
-            {
-              text: `You are 'Context Lens', a cross-cultural interpreter. 
-              Identify the object in the image (likely a Chinese cultural artifact, building, or detail).
-              
-              ${useMaps ? "Use the googleMaps tool to check if this is a known landmark nearby." : ""}
-              
-              Provide a response in strict JSON format. 
-              CRITICAL: The content of the JSON must be written in ${targetLanguage}.
-              
-              The JSON object must have these keys:
-              - title: The name of the object.
-              - essence: A single, punchy sentence explaining 'What is this?'.
-              - mirrorInsight: A cross-cultural analogy comparing this to a concept familiar to a speaker of ${targetLanguage}.
-              - philosophy: The deeper cultural logic or historical function.
-              - quickAction: A suggestion for the user (e.g. 'Look for the...').
-              
-              Do not include any text outside the JSON.`,
-            },
-          ],
-        },
-        config: {
-          tools: tools,
-          toolConfig: toolConfig,
-          safetySettings: [
-              { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-              { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-              { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-              { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-          ],
-        },
-      });
-  };
-
   try {
-      // Attempt 1: With Maps Grounding (if location exists)
-      try {
-          // If no location, skip maps immediately to save latency/errors
-          if (!location) throw new Error("No location");
-          
-          const response = await attemptDecipher(true);
-          return parseDecipherResponse(response);
-      } catch (primaryError) {
-          // Attempt 2: Fallback without Maps (Pure Image Analysis)
-          console.warn("Primary analysis failed (Maps/500), retrying without maps...", primaryError);
-          const response = await attemptDecipher(false);
-          return parseDecipherResponse(response);
-      }
+      const res = await fetch("/api/gemini/decipher", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ base64Image, location, targetLanguage })
+      });
+      if (!res.ok) throw new Error("Server error");
+      const data = await res.json();
+      return parseDecipherResponse(data.response);
   } catch (finalError) {
       console.error("Gemini Analysis Failed:", finalError);
       throw new Error("Could not interpret the image. Please try again.");
@@ -138,18 +72,14 @@ export const decipherImage = async (
 
 export const generateSpeech = async (text: string): Promise<string> => {
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-preview-tts",
-      contents: [{ parts: [{ text }] }],
-      config: {
-        responseModalities: [Modality.AUDIO],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: 'Kore' },
-          },
-        },
-      },
+    const res = await fetch("/api/gemini/speech", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text })
     });
+    if (!res.ok) throw new Error("Server error");
+    const data = await res.json();
+    const response = data.response;
 
     const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
     if (!base64Audio) {
@@ -172,37 +102,15 @@ export const generateDailyRecap = async (items: HistoryItem[], language: AppLang
     .join('\n');
 
   try {
-      const response = await ai.models.generateContent({
-          model: "gemini-3-flash-preview",
-          contents: {
-              parts: [{
-                  text: `You are a philosopher and cultural analyst looking at a traveler's discoveries in Beijing.
-                  
-                  Here are the items they discovered today:
-                  ${itemDescriptions}
-                  
-                  Analyze their "Resonance" with the city. 
-                  - If they looked at architecture, maybe they prefer "static history".
-                  - If they looked at people/food, maybe they prefer "living culture".
-                  - If mixed, maybe they are a "holistic observer".
-                  
-                  Please create a "Daily Recap" card in valid JSON format.
-                  The content must be written in ${langName}.
-                  
-                  The JSON object must have these keys:
-                  - journal: A poetic travel journal entry (under 100 words). First-person.
-                  - score: A number (1-100) representing "Cultural Resonance" based on diversity and depth of items.
-                  - mood: A single descriptive word for the mood.
-                  - tags: An array of 3-5 short hashtags.
-                  - archetype: A cool title for the user based on their finds (e.g. "The Socratic Observer", "The Urban Poet", "The Historian").
-                  - philosophicalTake: A direct, deep 2-sentence comment to the user about their observation style (e.g., "You tend to find silence in the noise...").
-                  `
-              }]
-          },
-          config: {
-              responseMimeType: "application/json"
-          }
+      const res = await fetch("/api/gemini/recap", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ itemDescriptions, langName })
       });
+      if (!res.ok) throw new Error("Server error");
+
+      const data = await res.json();
+      const response = data.response;
       
       const text = response.text;
       if (!text) throw new Error("No response from AI");

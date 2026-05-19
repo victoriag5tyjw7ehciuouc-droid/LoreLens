@@ -16,7 +16,7 @@ interface MapViewProps {
 
 export const MapView: React.FC<MapViewProps> = ({ onClose }) => {
   const { t } = useTranslation();
-  const { theme } = useSettingsStore();
+  const { theme, language } = useSettingsStore();
   const { history } = useHistoryStore();
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);

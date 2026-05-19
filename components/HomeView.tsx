@@ -11,8 +11,6 @@ interface HomeViewProps {
   onOpenSettings: () => void;
 }
 
-// Unsplash Configuration
-const UNSPLASH_ACCESS_KEY = 'uv123QeUSXk4RFi6RkNrhD2oUdzFQHBvbPY0MCcpOA8';
 const APP_NAME = 'Context Lens';
 
 // Safe Fallback Assets
@@ -181,10 +179,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
           // 3. 【核心修复】换回你最开始用的强大的 /search/photos 接口！
           // 请求前 15 张高度匹配的图片 (per_page=15)
-          const response = await fetch(
-              `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&orientation=portrait&per_page=15`,
-              { headers: { Authorization: `Client-ID ${UNSPLASH_ACCESS_KEY}` } }
-          );
+          const response = await fetch(`/api/unsplash?query=${encodeURIComponent(query)}`);
           
           if (response.status === 403 || response.status === 429) {
              console.warn("Unsplash API Rate Limit Exceeded");
@@ -218,8 +213,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
               // 触发下载统计 (完全符合你发的 API Guidelines 规范)
               if (photo.links?.download_location) {
-                  fetch(photo.links.download_location, {
-                      headers: { Authorization: `Client-ID ${UNSPLASH_ACCESS_KEY}` }
+                  fetch('/api/unsplash/download', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ url: photo.links.download_location })
                   }).catch(() => {});
               }
               return true;
